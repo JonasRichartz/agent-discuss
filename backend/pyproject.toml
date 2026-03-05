@@ -3,8 +3,11 @@ target-version = "py312"
 line-length = 120
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM"]
+select = ["E", "F", "W", "I"]
 ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
 
 [tool.ruff.format]
 quote-style = "double"
