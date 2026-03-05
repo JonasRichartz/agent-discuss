@@ -19,6 +19,7 @@ services:
       - SUPABASE_JWT_SECRET=${SUPABASE_JWT_SECRET}
       - CHROMA_HOST=chromadb
       - CHROMA_PORT=8000
+      - DATABASE_URL=${DATABASE_URL}
       - CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
     depends_on:
       redis:
@@ -48,6 +49,7 @@ services:
       - SUPABASE_KEY=${SUPABASE_KEY}
       - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
       - SUPABASE_JWT_SECRET=${SUPABASE_JWT_SECRET}
+      - DATABASE_URL=${DATABASE_URL}
       - CHROMA_HOST=chromadb
       - CHROMA_PORT=8000
     depends_on:

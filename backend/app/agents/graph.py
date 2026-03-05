@@ -10,7 +10,6 @@ from langgraph.graph import StateGraph, END
 
 from .state import DiscussionState, GraphDefinition, GraphNodeConfig
 from .nodes import NODE_FUNCTIONS
-from .checkpointer import PostgresCheckpointer
 
 
 def get_node_function(config: GraphNodeConfig):
@@ -261,76 +260,23 @@ def create_initial_state(
 
 
 class DiscussionRunner:
-    """
-    High-level runner for executing discussions.
+    """High-level runner for executing discussions with optional checkpointing."""
 
-    Handles:
-    - Building the graph
-    - Managing checkpoints for pause/resume
-    - Streaming state updates
-    """
-
-    def __init__(
-        self,
-        graph_definition: dict,
-        use_checkpointer: bool = True,
-    ):
-        # Use PostgreSQL checkpointer for persistent storage
-        self.checkpointer = PostgresCheckpointer() if use_checkpointer else None
-        self.graph = build_discussion_graph(graph_definition, self.checkpointer)
+    def __init__(self, graph_definition: dict, checkpointer=None):
+        self.graph = build_discussion_graph(graph_definition, checkpointer)
         self.thread_id: str | None = None
 
-    async def run(
-        self,
-        initial_state: DiscussionState,
-        thread_id: str | None = None,
-    ):
-        """
-        Run the discussion graph.
-
-        Yields state updates as the discussion progresses.
-        """
+    async def run(self, initial_state: DiscussionState, thread_id: str | None = None):
+        """Run the discussion graph, yielding state updates."""
         self.thread_id = thread_id or initial_state.get('discussion_id')
-
         config = {"configurable": {"thread_id": self.thread_id}}
-
         async for state in self.graph.astream(initial_state, config):
             yield state
 
     async def resume(self, thread_id: str):
-        """
-        Resume from checkpoint - continues from last saved state.
-
-        Args:
-            thread_id: The thread ID (discussion ID) to resume
-        """
-        if not self.checkpointer:
-            raise ValueError("Cannot resume without checkpointer")
-
+        """Resume from checkpoint — continues from last saved state."""
         self.thread_id = thread_id
         config = {"configurable": {"thread_id": thread_id}}
-
-        checkpoint = self.checkpointer.get(config)
-        if not checkpoint:
-            raise ValueError(f"No checkpoint found for {thread_id}")
-
-        # Resume from checkpoint
+        # Pass None to resume from the last checkpoint
         async for state in self.graph.astream(None, config):
             yield state
-
-    def pause(self, thread_id: str):
-        """
-        Pause a running discussion.
-
-        The pause is signaled via state update, not direct interruption.
-        """
-        # This would be called from the Celery task to set is_paused=True
-        pass
-
-    def stop(self, thread_id: str):
-        """
-        Stop a running discussion.
-
-        Similar to pause but permanent.
-        """
-        pass

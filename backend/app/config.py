@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     supabase_service_key: str = ""
     supabase_jwt_secret: str
 
+    # Database (direct Postgres for LangGraph checkpointing)
+    database_url: str = ""
+
     # Redis
     redis_url: str = "redis://localhost:6379/0"
 

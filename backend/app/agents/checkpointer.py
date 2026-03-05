@@ -1,54 +1,29 @@
-"""PostgreSQL-based checkpointer for LangGraph."""
-from typing import Any, Iterator, Optional, Tuple
-from langgraph.checkpoint.base import BaseCheckpointSaver, Checkpoint, CheckpointMetadata
-from app.services.supabase import get_supabase_service_client
+"""PostgreSQL-based checkpointer for LangGraph using AsyncPostgresSaver."""
+import logging
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from app.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 
-class PostgresCheckpointer(BaseCheckpointSaver):
-    """Stores LangGraph checkpoints in PostgreSQL."""
+async def create_checkpointer() -> AsyncPostgresSaver:
+    """Create and initialize an AsyncPostgresSaver instance.
 
-    def __init__(self):
-        super().__init__()
+    Returns an async context-managed checkpointer connected to the
+    project's PostgreSQL database. The caller must use it as:
 
-    def put(self, config: dict, checkpoint: Checkpoint, metadata: CheckpointMetadata) -> None:
-        """Save checkpoint to database."""
-        thread_id = config["configurable"]["thread_id"]
+        async with await create_checkpointer() as checkpointer:
+            graph = build_discussion_graph(definition, checkpointer)
+            ...
+    """
+    settings = get_settings()
+    db_url = settings.database_url
 
-        checkpoint_data = {
-            "checkpoint": checkpoint,
-            "metadata": metadata,
-        }
+    if not db_url:
+        raise ValueError(
+            "DATABASE_URL is not configured. "
+            "Set it in .env (get from Supabase: Settings > Database > Connection string)"
+        )
 
-        supabase = get_supabase_service_client()
-        supabase.table("discussions").update({
-            "execution_state": checkpoint_data,
-        }).eq("id", thread_id).execute()
-
-    def get(self, config: dict) -> Optional[Checkpoint]:
-        """Retrieve checkpoint from database."""
-        thread_id = config["configurable"]["thread_id"]
-
-        supabase = get_supabase_service_client()
-        result = supabase.table("discussions").select("execution_state").eq(
-            "id", thread_id
-        ).maybe_single().execute()
-
-        if not result or not result.data or not result.data.get("execution_state"):
-            return None
-
-        return result.data["execution_state"].get("checkpoint")
-
-    def list(self, config: dict) -> Iterator[Tuple[Checkpoint, CheckpointMetadata]]:
-        """List checkpoints (returns latest only)."""
-        checkpoint = self.get(config)
-        if checkpoint:
-            thread_id = config["configurable"]["thread_id"]
-            supabase = get_supabase_service_client()
-            result = supabase.table("discussions").select("execution_state").eq(
-                "id", thread_id
-            ).maybe_single().execute()
-
-            if not result or not result.data or not result.data.get("execution_state"):
-                return
-            metadata = result.data["execution_state"].get("metadata", {})
-            yield (checkpoint, metadata)
+    checkpointer = AsyncPostgresSaver.from_conn_string(db_url)
+    return checkpointer
