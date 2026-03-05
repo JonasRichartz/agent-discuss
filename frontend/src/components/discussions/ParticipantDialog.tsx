@@ -78,7 +78,7 @@ export function ParticipantDialog({
         avatar_emoji: '🤖',
       })
     }
-  }, [participant, providers, open])
+  }, [participant, open])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()

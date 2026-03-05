@@ -108,6 +108,9 @@ async def _get_rag_context_safe(state: "DiscussionState") -> str:
     parts = []
     rag_query = None
 
+    import logging
+    _logger = logging.getLogger(__name__)
+
     # RAG from linked documents
     try:
         rag_query = await build_rag_query(state)
@@ -118,8 +121,8 @@ async def _get_rag_context_safe(state: "DiscussionState") -> str:
         )
         if rag_result:
             parts.append(rag_result)
-    except Exception:
-        pass  # RAG is optional
+    except Exception as e:
+        _logger.warning(f"RAG context retrieval failed: {e}")
 
     # Web search (if enabled for this discussion)
     if state.get('web_search_enabled'):
@@ -129,8 +132,8 @@ async def _get_rag_context_safe(state: "DiscussionState") -> str:
             search_result = await tavily_search(query, api_key=state.get('tavily_api_key'))
             if search_result:
                 parts.append(f"## Web Search Results\n\n{search_result}")
-        except Exception:
-            pass  # Web search is optional
+        except Exception as e:
+            _logger.warning(f"Web search failed: {e}")
 
     return "\n\n".join(parts)
 
@@ -589,8 +592,13 @@ Discussion to summarize:
 
 Summary:"""
 
-    response = await llm.ainvoke([HumanMessage(content=full_prompt)])
-    summary = response.content
+    try:
+        response = await llm.ainvoke([HumanMessage(content=full_prompt)])
+        summary = response.content
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Summary LLM call failed: {e}")
+        summary = f"[Summary unavailable — LLM error: {e}]"
 
     # Create summary message
     msg = create_message(

@@ -144,10 +144,10 @@ async def update_discussion(current_user: CurrentUser, discussion_id: UUID, requ
         supabase, discussion_id, current_user["id"], fields="status"
     )
 
-    if existing["status"] in ("running", "paused"):
+    if existing["status"] != "draft":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Cannot update discussion while it is {existing['status']}",
+            detail=f"Cannot update discussion in '{existing['status']}' status. Only draft discussions can be edited.",
         )
 
     update_data = request.model_dump(exclude_unset=True)

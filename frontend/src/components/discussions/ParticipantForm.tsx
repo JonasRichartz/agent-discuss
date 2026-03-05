@@ -86,7 +86,7 @@ export function ParticipantForm({ formData, onChange, providers }: ParticipantFo
           id="maxTokens"
           type="number"
           value={formData.max_tokens}
-          onChange={(e) => onChange({ ...formData, max_tokens: parseInt(e.target.value) })}
+          onChange={(e) => onChange({ ...formData, max_tokens: parseInt(e.target.value) || 4096 })}
           min={100}
         />
       </div>

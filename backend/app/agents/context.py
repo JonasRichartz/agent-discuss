@@ -363,11 +363,11 @@ def apply_template_variables(
     if extra_vars:
         variables.update(extra_vars)
 
-    # Safe format that ignores missing keys
+    # Safe format that ignores missing/malformed keys
     try:
         return template.format(**variables)
-    except KeyError:
-        # If there are unmatched variables, return template as-is
+    except (KeyError, ValueError, IndexError):
+        # If there are unmatched or malformed format specifiers, return template as-is
         return template
 
 

@@ -227,12 +227,13 @@ def check_stop_signal(redis_client: redis.Redis, discussion_id: str) -> str | No
     """
     Check Redis for stop/pause signals.
 
+    Uses GETDEL for atomic read-and-delete to prevent race conditions.
+
     Returns: 'pause', 'stop', or None
     """
     key = f"discussion:{discussion_id}:signal"
-    signal = redis_client.get(key)
+    signal = redis_client.getdel(key)
     if signal:
-        redis_client.delete(key)
         return signal.decode() if isinstance(signal, bytes) else signal
     return None
 
@@ -254,7 +255,7 @@ def _build_llm_config(llm_provider: dict | None, discussion_id: str) -> dict:
 
 async def _process_graph_stream(
     runner: DiscussionRunner,
-    initial_state: dict,
+    initial_state: dict | None,
     discussion_id: str,
     agent_configs: list[dict],
     task_instance,
@@ -266,6 +267,7 @@ async def _process_graph_stream(
     """
     Shared graph execution loop for both run and resume.
 
+    When initial_state is provided, starts a new run. When None, resumes from checkpoint.
     Streams state updates from LangGraph, saves messages, publishes to WebSocket,
     handles typing indicators, and checks for pause/stop signals.
     """
@@ -280,7 +282,13 @@ async def _process_graph_stream(
         typing_agents.clear()
 
     try:
-        async for state_update in runner.run(initial_state, thread_id=discussion_id):
+        # Resume from checkpoint when no initial state, otherwise start fresh
+        if initial_state is None:
+            stream = runner.resume(discussion_id)
+        else:
+            stream = runner.run(initial_state, thread_id=discussion_id)
+
+        async for state_update in stream:
             for node_id, node_output in state_update.items():
                 if not node_output:
                     continue
@@ -533,14 +541,16 @@ async def resume_discussion_async(discussion_id: str, user_id: str, task_instanc
 
             if checkpoint:
                 logger.info(f"Resuming discussion {discussion_id} from checkpoint")
-                return await _process_graph_stream_resume(
+                return await _process_graph_stream(
                     runner=runner,
+                    initial_state=None,  # Resume from checkpoint — no initial state needed
                     discussion_id=discussion_id,
                     agent_configs=data["agent_configs"],
                     task_instance=task_instance,
                     redis_client=redis_client,
                     existing_message_ids=existing_ids,
                     initial_message_count=message_count,
+                    extra_task_meta={"resumed": True},
                 )
 
             # No checkpoint — fall through to replay-based resume
@@ -561,107 +571,6 @@ async def resume_discussion_async(discussion_id: str, user_id: str, task_instanc
         existing_ids=existing_ids,
         message_count=message_count,
     )
-
-
-async def _process_graph_stream_resume(
-    runner: DiscussionRunner,
-    discussion_id: str,
-    agent_configs: list[dict],
-    task_instance,
-    redis_client: "redis.Redis",
-    existing_message_ids: set[str],
-    initial_message_count: int,
-) -> dict:
-    """Resume graph execution from checkpoint."""
-    message_count = initial_message_count
-    typing_agents: set[str] = set()
-
-    def clear_typing():
-        for agent_id in typing_agents:
-            agent = next((a for a in agent_configs if a["id"] == agent_id), None)
-            if agent:
-                publish_typing(redis_client, discussion_id, agent_id, agent["name"], False)
-        typing_agents.clear()
-
-    try:
-        async for state_update in runner.resume(discussion_id):
-            for node_id, node_output in state_update.items():
-                if not node_output:
-                    continue
-
-                node_state = node_output.get("node_state")
-                if node_state and node_state.node_type == "generate" and not node_state.is_complete:
-                    if node_state.current_agent_index < len(agent_configs):
-                        agent = agent_configs[node_state.current_agent_index]
-                        if agent["id"] not in typing_agents:
-                            publish_typing(redis_client, discussion_id, agent["id"], agent["name"], True)
-                            typing_agents.add(agent["id"])
-
-                new_messages = node_output.get("messages", [])
-
-                for msg in new_messages:
-                    if isinstance(msg, MessageRecord) and msg.agent_id and msg.agent_id in typing_agents:
-                        publish_typing(redis_client, discussion_id, msg.agent_id, msg.agent_name or "", False)
-                        typing_agents.discard(msg.agent_id)
-
-                for msg in new_messages:
-                    if not isinstance(msg, MessageRecord):
-                        continue
-                    if msg.id in existing_message_ids:
-                        continue
-
-                    await save_message(discussion_id, msg)
-                    publish_message(
-                        redis_client,
-                        discussion_id,
-                        {
-                            "type": "message",
-                            "message": {
-                                "id": msg.id,
-                                "agent_id": msg.agent_id,
-                                "agent_name": msg.agent_name,
-                                "content": msg.content,
-                                "message_type": msg.message_type,
-                                "sequence_number": msg.sequence_number,
-                                "avatar_color": msg.metadata.get("participant_avatar_color", "#6366f1"),
-                                "avatar_emoji": msg.metadata.get("participant_avatar_emoji", ""),
-                            },
-                        },
-                    )
-                    message_count += 1
-                    existing_message_ids.add(msg.id)
-
-                task_instance.update_state(
-                    state=states.STARTED,
-                    meta={"current_node": node_output.get("current_node_id"), "messages": message_count, "resumed": True},
-                )
-
-            signal = check_stop_signal(redis_client, discussion_id)
-            if signal == "pause":
-                clear_typing()
-                await update_discussion_status(
-                    discussion_id, "paused",
-                    execution_state={"thread_id": discussion_id, "has_checkpoint": True},
-                )
-                publish_status(redis_client, discussion_id, "paused")
-                return {"status": "paused", "messages": message_count}
-            elif signal == "stop":
-                clear_typing()
-                await update_discussion_status(discussion_id, "completed")
-                publish_status(redis_client, discussion_id, "completed")
-                return {"status": "stopped", "messages": message_count}
-
-        clear_typing()
-        await update_discussion_status(discussion_id, "completed")
-        publish_status(redis_client, discussion_id, "completed")
-        return {"status": "completed", "messages": message_count}
-
-    except Exception as e:
-        logger.exception(f"Error resuming discussion {discussion_id}")
-        clear_typing()
-        await update_discussion_status(discussion_id, "failed")
-        publish_status(redis_client, discussion_id, "failed", {"error": str(e)})
-        raise
 
 
 async def _resume_via_replay(
