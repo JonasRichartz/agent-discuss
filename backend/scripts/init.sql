@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS llm_providers (
     api_key TEXT,
     available_models TEXT[] DEFAULT '{}',
     is_default BOOLEAN DEFAULT FALSE,
+    embedding_model TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(user_id, name)
 );
@@ -257,6 +258,9 @@ END $$;
 
 -- Migration: Add model_name to agents table (for existing databases)
 ALTER TABLE agents ADD COLUMN IF NOT EXISTS model_name TEXT;
+
+-- Migration: Add embedding_model to llm_providers (for existing databases)
+ALTER TABLE llm_providers ADD COLUMN IF NOT EXISTS embedding_model TEXT;
 
 -- Update comment on agents table
 COMMENT ON TABLE agents IS 'Agent templates - reusable participant configurations';
