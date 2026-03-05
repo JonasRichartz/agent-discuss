@@ -236,81 +236,42 @@ def check_stop_signal(redis_client: redis.Redis, discussion_id: str) -> str | No
     return None
 
 
-async def run_discussion_async(
-    discussion_id: str,
-    user_id: str,
-    task_instance,
-) -> dict:
-    """
-    Async implementation of discussion execution.
-
-    Args:
-        discussion_id: The discussion ID
-        user_id: The user ID
-        task_instance: Celery task instance for state updates
-
-    Returns:
-        Final execution state
-    """
-    redis_client = get_redis_client()
-
-    # Load discussion data
-    data = await load_discussion_data(discussion_id, user_id)
-    if not data:
-        raise ValueError(f"Discussion {discussion_id} not found or missing configuration")
-
-    discussion = data["discussion"]
-    agent_configs = data["agent_configs"]
-    participant_llm_configs = data["participant_llm_configs"]
-    llm_provider = data.get("llm_provider")
-
-    # Update status to running
-    await update_discussion_status(discussion_id, "running")
-    publish_status(redis_client, discussion_id, "running")
-
-    # Prepare default LLM config (fallback for non-participant nodes)
+def _build_llm_config(llm_provider: dict | None, discussion_id: str) -> dict:
+    """Build fallback LLM config from provider (used for non-participant nodes)."""
     if not llm_provider:
         logger.warning(f"Discussion {discussion_id} has no default LLM provider - participant-specific configs will be used")
-        # Use minimal fallback - discussions should use per-participant configs
-        llm_config = {
-            "base_url": "",
-            "api_key": "",
-            "model": "gpt-3.5-turbo",
-            "max_tokens": 4096,
-        }
-    else:
-        llm_config = {
-            "base_url": llm_provider.get("base_url", ""),
-            "api_key": llm_provider.get("api_key", ""),
-            "model": llm_provider.get("available_models", ["gpt-3.5-turbo"])[0] if llm_provider.get("available_models") else "gpt-3.5-turbo",
-            "max_tokens": llm_provider.get("max_tokens", 4096),
-        }
+        return {"base_url": "", "api_key": "", "model": "gpt-3.5-turbo", "max_tokens": 4096}
 
-    # Create initial state
-    initial_state = create_initial_state(
-        discussion_id=discussion_id,
-        topic=discussion["topic"],
-        description=discussion.get("description", ""),
-        agents=agent_configs,
-        llm_config=llm_config,
-        participant_llm_configs=participant_llm_configs,
-        web_search_enabled=discussion.get("web_search_enabled", False),
-        tavily_api_key=data.get("tavily_api_key"),
-    )
+    models = llm_provider.get("available_models") or []
+    return {
+        "base_url": llm_provider.get("base_url", ""),
+        "api_key": llm_provider.get("api_key", ""),
+        "model": models[0] if models else "gpt-3.5-turbo",
+        "max_tokens": llm_provider.get("max_tokens", 4096),
+    }
 
-    # Build and run the graph
-    graph_definition = discussion.get("graph_definition", {})
-    runner = DiscussionRunner(graph_definition, use_checkpointer=False)
 
-    final_state = initial_state
-    message_count = 0
+async def _process_graph_stream(
+    runner: DiscussionRunner,
+    initial_state: dict,
+    discussion_id: str,
+    agent_configs: list[dict],
+    task_instance,
+    redis_client: redis.Redis,
+    existing_message_ids: set[str] | None = None,
+    initial_message_count: int = 0,
+    extra_task_meta: dict | None = None,
+) -> dict:
+    """
+    Shared graph execution loop for both run and resume.
 
-    # Track which agents are currently "typing"
-    typing_agents = set()
+    Streams state updates from LangGraph, saves messages, publishes to WebSocket,
+    handles typing indicators, and checks for pause/stop signals.
+    """
+    message_count = initial_message_count
+    typing_agents: set[str] = set()
 
     def clear_typing():
-        """Clear all typing indicators."""
-        nonlocal typing_agents
         for agent_id in typing_agents:
             agent = next((a for a in agent_configs if a["id"] == agent_id), None)
             if agent:
@@ -319,22 +280,19 @@ async def run_discussion_async(
 
     try:
         async for state_update in runner.run(initial_state, thread_id=discussion_id):
-            # Process state updates
             for node_id, node_output in state_update.items():
                 if not node_output:
                     continue
 
-                # Check if this is a generate node starting
+                # Show typing indicator for generate nodes
                 node_state = node_output.get("node_state")
                 if node_state and node_state.node_type == "generate" and not node_state.is_complete:
-                    # Show typing indicator for next agent(s)
                     if node_state.current_agent_index < len(agent_configs):
                         agent = agent_configs[node_state.current_agent_index]
                         if agent["id"] not in typing_agents:
                             publish_typing(redis_client, discussion_id, agent["id"], agent["name"], True)
                             typing_agents.add(agent["id"])
 
-                # Handle new messages
                 new_messages = node_output.get("messages", [])
 
                 # Clear typing for agents who just sent messages
@@ -344,83 +302,104 @@ async def run_discussion_async(
                         typing_agents.discard(msg.agent_id)
 
                 for msg in new_messages:
-                    if isinstance(msg, MessageRecord):
-                        # Save to database
-                        await save_message(discussion_id, msg)
+                    if not isinstance(msg, MessageRecord):
+                        continue
+                    # Skip messages already in DB (resume case)
+                    if existing_message_ids and msg.id in existing_message_ids:
+                        continue
 
-                        # Publish to WebSocket (include avatar info for display)
-                        publish_message(
-                            redis_client,
-                            discussion_id,
-                            {
-                                "type": "message",
-                                "message": {
-                                    "id": msg.id,
-                                    "agent_id": msg.agent_id,
-                                    "agent_name": msg.agent_name,
-                                    "content": msg.content,
-                                    "message_type": msg.message_type,
-                                    "sequence_number": msg.sequence_number,
-                                    "avatar_color": msg.metadata.get("participant_avatar_color", "#6366f1"),
-                                    "avatar_emoji": msg.metadata.get("participant_avatar_emoji", ""),
-                                },
+                    await save_message(discussion_id, msg)
+                    publish_message(
+                        redis_client,
+                        discussion_id,
+                        {
+                            "type": "message",
+                            "message": {
+                                "id": msg.id,
+                                "agent_id": msg.agent_id,
+                                "agent_name": msg.agent_name,
+                                "content": msg.content,
+                                "message_type": msg.message_type,
+                                "sequence_number": msg.sequence_number,
+                                "avatar_color": msg.metadata.get("participant_avatar_color", "#6366f1"),
+                                "avatar_emoji": msg.metadata.get("participant_avatar_emoji", ""),
                             },
-                        )
-                        message_count += 1
+                        },
+                    )
+                    message_count += 1
 
-                # Update task progress
-                task_instance.update_state(
-                    state=states.STARTED,
-                    meta={
-                        "current_node": node_output.get("current_node_id"),
-                        "messages": message_count,
-                    },
-                )
+                meta = {"current_node": node_output.get("current_node_id"), "messages": message_count}
+                if extra_task_meta:
+                    meta.update(extra_task_meta)
+                task_instance.update_state(state=states.STARTED, meta=meta)
 
             # Check for stop/pause signals
             signal = check_stop_signal(redis_client, discussion_id)
             if signal == "pause":
-                # Save execution state and pause
                 clear_typing()
-                await update_discussion_status(
-                    discussion_id,
-                    "paused",
-                    execution_state={"thread_id": discussion_id},
-                )
+                await update_discussion_status(discussion_id, "paused", execution_state={"thread_id": discussion_id})
                 publish_status(redis_client, discussion_id, "paused")
                 return {"status": "paused", "messages": message_count}
-
             elif signal == "stop":
-                # Stop the discussion
                 clear_typing()
                 await update_discussion_status(discussion_id, "completed")
                 publish_status(redis_client, discussion_id, "completed")
                 return {"status": "stopped", "messages": message_count}
 
-            # Store latest state
-            if isinstance(state_update, dict):
-                for key, value in state_update.items():
-                    if isinstance(value, dict):
-                        final_state = {**final_state, **value}
-
-        # Discussion completed naturally
+        # Completed naturally
         clear_typing()
         await update_discussion_status(discussion_id, "completed")
         publish_status(redis_client, discussion_id, "completed")
-
         return {"status": "completed", "messages": message_count}
 
     except Exception as e:
-        logger.exception(f"Error running discussion {discussion_id}")
+        logger.exception(f"Error in discussion {discussion_id}")
         clear_typing()
         await update_discussion_status(discussion_id, "failed")
-        publish_status(
-            redis_client,
-            discussion_id,
-            "failed",
-            {"error": str(e)},
-        )
+        publish_status(redis_client, discussion_id, "failed", {"error": str(e)})
         raise
+
+
+async def run_discussion_async(
+    discussion_id: str,
+    user_id: str,
+    task_instance,
+) -> dict:
+    """Run a new discussion from scratch."""
+    redis_client = get_redis_client()
+
+    data = await load_discussion_data(discussion_id, user_id)
+    if not data:
+        raise ValueError(f"Discussion {discussion_id} not found or missing configuration")
+
+    discussion = data["discussion"]
+    llm_config = _build_llm_config(data.get("llm_provider"), discussion_id)
+
+    await update_discussion_status(discussion_id, "running")
+    publish_status(redis_client, discussion_id, "running")
+
+    initial_state = create_initial_state(
+        discussion_id=discussion_id,
+        topic=discussion["topic"],
+        description=discussion.get("description", ""),
+        agents=data["agent_configs"],
+        llm_config=llm_config,
+        participant_llm_configs=data["participant_llm_configs"],
+        web_search_enabled=discussion.get("web_search_enabled", False),
+        tavily_api_key=data.get("tavily_api_key"),
+    )
+
+    graph_definition = discussion.get("graph_definition", {})
+    runner = DiscussionRunner(graph_definition, use_checkpointer=False)
+
+    return await _process_graph_stream(
+        runner=runner,
+        initial_state=initial_state,
+        discussion_id=discussion_id,
+        agent_configs=data["agent_configs"],
+        task_instance=task_instance,
+        redis_client=redis_client,
+    )
 
 
 @celery_app.task(bind=True)
@@ -491,12 +470,7 @@ def stop_discussion(discussion_id: str):
 
 
 async def resume_discussion_async(discussion_id: str, user_id: str, task_instance) -> dict:
-    """
-    Resume a paused discussion by re-running from scratch with existing messages loaded as context.
-
-    Since checkpointing is disabled, we load existing messages from DB and include them
-    in the initial state so the graph can continue from where it left off.
-    """
+    """Resume a paused discussion by replaying the graph with existing messages as context."""
     redis_client = get_redis_client()
 
     data = await load_discussion_data(discussion_id, user_id)
@@ -504,10 +478,6 @@ async def resume_discussion_async(discussion_id: str, user_id: str, task_instanc
         raise ValueError(f"Discussion {discussion_id} not found")
 
     discussion = data["discussion"]
-    agent_configs = data["agent_configs"]
-    participant_llm_configs = data["participant_llm_configs"]
-    llm_provider = data.get("llm_provider")
-
     if discussion["status"] != "paused":
         raise ValueError(f"Cannot resume from {discussion['status']} status")
 
@@ -520,12 +490,11 @@ async def resume_discussion_async(discussion_id: str, user_id: str, task_instanc
     existing_db_messages = existing_messages_result.data or []
 
     # Reconstruct MessageRecord objects from DB rows
-    from app.agents.state import MessageRecord as MsgRecord
     restored_messages = []
     max_sequence = 0
     for row in existing_db_messages:
         metadata = row.get("metadata") or {}
-        restored_messages.append(MsgRecord(
+        restored_messages.append(MessageRecord(
             id=row["id"],
             agent_id=metadata.get("participant_id"),
             agent_name=metadata.get("participant_name"),
@@ -537,140 +506,43 @@ async def resume_discussion_async(discussion_id: str, user_id: str, task_instanc
         if row["sequence_number"] > max_sequence:
             max_sequence = row["sequence_number"]
 
-    # Update to running
     await update_discussion_status(discussion_id, "running")
     publish_status(redis_client, discussion_id, "running")
 
-    # Prepare default LLM config
-    if not llm_provider:
-        llm_config = {
-            "base_url": "",
-            "api_key": "",
-            "model": "gpt-3.5-turbo",
-            "max_tokens": 4096,
-        }
-    else:
-        llm_config = {
-            "base_url": llm_provider.get("base_url", ""),
-            "api_key": llm_provider.get("api_key", ""),
-            "model": llm_provider.get("available_models", ["gpt-3.5-turbo"])[0] if llm_provider.get("available_models") else "gpt-3.5-turbo",
-            "max_tokens": llm_provider.get("max_tokens", 4096),
-        }
+    llm_config = _build_llm_config(data.get("llm_provider"), discussion_id)
 
-    # Create initial state with existing messages pre-loaded for context
     initial_state = create_initial_state(
         discussion_id=discussion_id,
         topic=discussion["topic"],
         description=discussion.get("description", ""),
-        agents=agent_configs,
+        agents=data["agent_configs"],
         llm_config=llm_config,
-        participant_llm_configs=participant_llm_configs,
+        participant_llm_configs=data["participant_llm_configs"],
         web_search_enabled=discussion.get("web_search_enabled", False),
         tavily_api_key=data.get("tavily_api_key"),
     )
-    # Inject existing messages and sequence so graph can continue from last state
+    # Inject existing messages so graph has context from prior run
     initial_state["messages"] = restored_messages
     initial_state["message_sequence"] = max_sequence
-    # Restore context summary if available
     if discussion.get("context_summary"):
         initial_state["context_summary"] = discussion["context_summary"]
 
-    # Build and run (not resume — checkpointer is disabled)
     graph_definition = discussion.get("graph_definition", {})
     runner = DiscussionRunner(graph_definition, use_checkpointer=False)
 
-    message_count = len(restored_messages)
-    typing_agents = set()
+    existing_ids = {m.id for m in restored_messages}
 
-    def clear_typing():
-        """Clear all typing indicators."""
-        nonlocal typing_agents
-        for agent_id in typing_agents:
-            agent = next((a for a in agent_configs if a["id"] == agent_id), None)
-            if agent:
-                publish_typing(redis_client, discussion_id, agent_id, agent["name"], False)
-        typing_agents.clear()
-
-    try:
-        async for state_update in runner.run(initial_state, thread_id=discussion_id):
-            for node_id, node_output in state_update.items():
-                if not node_output:
-                    continue
-
-                # Show typing indicator
-                node_state = node_output.get("node_state")
-                if node_state and node_state.node_type == "generate" and not node_state.is_complete:
-                    if node_state.current_agent_index < len(agent_configs):
-                        agent = agent_configs[node_state.current_agent_index]
-                        if agent["id"] not in typing_agents:
-                            publish_typing(redis_client, discussion_id, agent["id"], agent["name"], True)
-                            typing_agents.add(agent["id"])
-
-                # Handle new messages (only those not already in DB)
-                new_messages = node_output.get("messages", [])
-                existing_ids = {m.id for m in restored_messages}
-
-                for msg in new_messages:
-                    if isinstance(msg, MessageRecord) and msg.agent_id and msg.agent_id in typing_agents:
-                        publish_typing(redis_client, discussion_id, msg.agent_id, msg.agent_name or "", False)
-                        typing_agents.discard(msg.agent_id)
-
-                for msg in new_messages:
-                    if isinstance(msg, MessageRecord) and msg.id not in existing_ids:
-                        await save_message(discussion_id, msg)
-                        publish_message(
-                            redis_client,
-                            discussion_id,
-                            {
-                                "type": "message",
-                                "message": {
-                                    "id": msg.id,
-                                    "agent_id": msg.agent_id,
-                                    "agent_name": msg.agent_name,
-                                    "content": msg.content,
-                                    "message_type": msg.message_type,
-                                    "sequence_number": msg.sequence_number,
-                                    "avatar_color": msg.metadata.get("participant_avatar_color", "#6366f1"),
-                                    "avatar_emoji": msg.metadata.get("participant_avatar_emoji", ""),
-                                },
-                            },
-                        )
-                        message_count += 1
-
-                task_instance.update_state(
-                    state=states.STARTED,
-                    meta={"current_node": node_output.get("current_node_id"), "messages": message_count, "resumed": True},
-                )
-
-            # Check for pause/stop signals
-            signal = check_stop_signal(redis_client, discussion_id)
-            if signal == "pause":
-                clear_typing()
-                await update_discussion_status(
-                    discussion_id,
-                    "paused",
-                    execution_state={"thread_id": discussion_id},
-                )
-                publish_status(redis_client, discussion_id, "paused")
-                return {"status": "paused", "messages": message_count}
-            elif signal == "stop":
-                clear_typing()
-                await update_discussion_status(discussion_id, "completed")
-                publish_status(redis_client, discussion_id, "completed")
-                return {"status": "stopped", "messages": message_count}
-
-        # Completed
-        clear_typing()
-        await update_discussion_status(discussion_id, "completed")
-        publish_status(redis_client, discussion_id, "completed")
-        return {"status": "completed", "messages": message_count}
-
-    except Exception as e:
-        logger.exception(f"Error resuming {discussion_id}")
-        clear_typing()
-        await update_discussion_status(discussion_id, "failed")
-        publish_status(redis_client, discussion_id, "failed", {"error": str(e)})
-        raise
+    return await _process_graph_stream(
+        runner=runner,
+        initial_state=initial_state,
+        discussion_id=discussion_id,
+        agent_configs=data["agent_configs"],
+        task_instance=task_instance,
+        redis_client=redis_client,
+        existing_message_ids=existing_ids,
+        initial_message_count=len(restored_messages),
+        extra_task_meta={"resumed": True},
+    )
 
 
 @celery_app.task(bind=True)

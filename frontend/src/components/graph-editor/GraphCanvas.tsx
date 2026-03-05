@@ -6,6 +6,7 @@ import {
   MiniMap,
   BackgroundVariant,
   type OnSelectionChangeParams,
+  type IsValidConnection,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 
@@ -19,7 +20,20 @@ export function GraphCanvas() {
   const onNodesChange = useGraphStore((state) => state.onNodesChange)
   const onEdgesChange = useGraphStore((state) => state.onEdgesChange)
   const onConnect = useGraphStore((state) => state.onConnect)
-  const isValidConnection = useGraphStore((state) => state.isValidConnection)
+  const storeIsValidConnection = useGraphStore((state) => state.isValidConnection)
+  const isValidConnection: IsValidConnection = useCallback(
+    (edgeOrConnection) => {
+      // React Flow passes Edge | Connection; extract the Connection fields
+      const connection = {
+        source: edgeOrConnection.source,
+        target: edgeOrConnection.target,
+        sourceHandle: edgeOrConnection.sourceHandle ?? null,
+        targetHandle: edgeOrConnection.targetHandle ?? null,
+      }
+      return storeIsValidConnection(connection)
+    },
+    [storeIsValidConnection]
+  )
   const selectNode = useGraphStore((state) => state.selectNode)
   const selectEdge = useGraphStore((state) => state.selectEdge)
 

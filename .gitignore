@@ -45,6 +45,7 @@ yarn-error.log*
 # Build outputs
 frontend/dist/
 *.log
+*.tsbuildinfo
 
 # Docker
 *.log
@@ -52,6 +53,10 @@ frontend/dist/
 # Database
 *.db
 *.sqlite
+*.sqlite3
+
+# ChromaDB data
+backend/data/
 
 # OS
 .DS_Store
