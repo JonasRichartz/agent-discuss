@@ -1,0 +1,507 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 240 6% 10%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 6% 10%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 6% 10%;
+    --primary: 217 91% 50%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 240 5% 96%;
+    --secondary-foreground: 240 6% 10%;
+    --muted: 240 5% 96%;
+    --muted-foreground: 240 4% 46%;
+    --accent: 240 5% 96%;
+    --accent-foreground: 240 6% 10%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 98%;
+    --success: 142.1 76.2% 36.3%;
+    --success-foreground: 355.7 100% 97.3%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 48 96% 89%;
+    --border: 240 6% 90%;
+    --input: 240 6% 90%;
+    --ring: 217 91% 50%;
+    --radius: 0.625rem;
+    --sidebar: 0 0% 100%;
+  }
+
+  .dark {
+    --background: 240 6% 7%;
+    --foreground: 0 0% 93%;
+    --card: 240 5% 9%;
+    --card-foreground: 0 0% 93%;
+    --popover: 240 5% 9%;
+    --popover-foreground: 0 0% 93%;
+    --primary: 213 94% 58%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 240 4% 14%;
+    --secondary-foreground: 0 0% 93%;
+    --muted: 240 4% 14%;
+    --muted-foreground: 240 4% 58%;
+    --accent: 240 4% 14%;
+    --accent-foreground: 0 0% 93%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 93%;
+    --success: 142.1 70.6% 45.3%;
+    --success-foreground: 144.9 80.4% 10%;
+    --warning: 48 96% 53%;
+    --warning-foreground: 20.5 90.2% 8.2%;
+    --border: 240 4% 16%;
+    --input: 240 4% 16%;
+    --ring: 213 94% 58%;
+    --sidebar: 240 5% 8%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    letter-spacing: -0.011em;
+  }
+}
+
+/* Default scrollbar - thin, subtle */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.2);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.4);
+}
+
+/* Chat scrollbar - always visible, wider */
+.chat-scrollbar::-webkit-scrollbar {
+  width: 8px;
+}
+
+.chat-scrollbar::-webkit-scrollbar-track {
+  background: hsl(var(--muted) / 0.5);
+  border-radius: 4px;
+  margin: 4px 0;
+}
+
+.chat-scrollbar::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.3);
+  border-radius: 4px;
+  border: 1px solid transparent;
+  background-clip: content-box;
+}
+
+.chat-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.5);
+  background-clip: content-box;
+}
+
+/* Firefox scrollbar support */
+.chat-scrollbar {
+  scrollbar-width: auto;
+  scrollbar-color: hsl(var(--muted-foreground) / 0.3) hsl(var(--muted) / 0.5);
+}
+
+/* Smooth theme transitions */
+* {
+  transition-property: background-color, border-color;
+  transition-duration: 150ms;
+  transition-timing-function: ease-in-out;
+}
+
+/* React Flow theming */
+.react-flow__node {
+  transition: box-shadow 150ms ease-in-out;
+}
+
+.react-flow__edge-path {
+  stroke: hsl(var(--muted-foreground));
+}
+
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: hsl(var(--primary));
+}
+
+.react-flow__controls {
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+  background: hsl(var(--card)) !important;
+  border: 1px solid hsl(var(--border)) !important;
+  border-radius: 0.5rem !important;
+  overflow: hidden;
+}
+
+.react-flow__controls button {
+  background: hsl(var(--card)) !important;
+  border-bottom: 1px solid hsl(var(--border)) !important;
+  color: hsl(var(--foreground)) !important;
+  fill: hsl(var(--foreground)) !important;
+  width: 28px !important;
+  height: 28px !important;
+}
+
+.react-flow__controls button:hover {
+  background: hsl(var(--accent)) !important;
+}
+
+.react-flow__controls button svg {
+  fill: hsl(var(--muted-foreground)) !important;
+}
+
+.react-flow__controls button:hover svg {
+  fill: hsl(var(--foreground)) !important;
+}
+
+.react-flow__controls button:last-child {
+  border-bottom: none !important;
+}
+
+.react-flow__minimap {
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+  background: hsl(var(--card)) !important;
+  border: 1px solid hsl(var(--border)) !important;
+  border-radius: 0.5rem !important;
+}
+
+/* Focus ring styling */
+.focus-visible:focus {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+/* Animation utilities */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 200ms ease-out;
+}
+
+.animate-slide-up {
+  animation: slideUp 200ms ease-out;
+}
+
+/* ---- Chat message markdown ---- */
+
+/* Tables */
+.msg-markdown table,
+.msg-markdown .msg-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.msg-markdown thead {
+  border-bottom: 2px solid hsl(var(--border));
+}
+
+.msg-markdown th {
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.025em;
+  color: hsl(var(--muted-foreground));
+  background: hsl(var(--muted) / 0.5);
+  white-space: nowrap;
+}
+
+.msg-markdown td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid hsl(var(--border) / 0.5);
+  vertical-align: top;
+}
+
+.msg-markdown tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.msg-markdown tbody tr:hover {
+  background: hsl(var(--muted) / 0.3);
+}
+
+/* Lists */
+.msg-markdown ul {
+  list-style: disc;
+  padding-left: 1.5rem;
+  margin: 0.5rem 0;
+}
+
+.msg-markdown ol {
+  list-style: decimal;
+  padding-left: 1.5rem;
+  margin: 0.5rem 0;
+}
+
+.msg-markdown li {
+  padding-left: 0.25rem;
+  margin: 0.2rem 0;
+}
+
+.msg-markdown li > ul,
+.msg-markdown li > ol {
+  margin: 0.15rem 0;
+}
+
+.msg-markdown li::marker {
+  color: hsl(var(--muted-foreground) / 0.5);
+}
+
+/* Task list checkboxes (GFM) */
+.msg-markdown li input[type="checkbox"] {
+  margin-right: 0.4rem;
+  accent-color: hsl(var(--primary));
+  pointer-events: none;
+}
+
+.msg-markdown li:has(> input[type="checkbox"]) {
+  list-style: none;
+  margin-left: -1.25rem;
+}
+
+/* Code blocks */
+.msg-markdown pre,
+.msg-markdown .msg-code-block {
+  border-radius: 0.5rem;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--muted) / 0.6) !important;
+  padding: 0.875rem 1rem;
+  overflow-x: auto;
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 0.75rem 0;
+}
+
+.msg-markdown pre code,
+.msg-markdown .msg-code-block code {
+  background: transparent !important;
+  padding: 0 !important;
+  border-radius: 0;
+  font-size: inherit;
+  border: none;
+}
+
+/* Inline code */
+.msg-markdown :not(pre) > code {
+  background: hsl(var(--muted));
+  border: 1px solid hsl(var(--border) / 0.6);
+  padding: 0.15rem 0.4rem;
+  border-radius: 0.25rem;
+  font-size: 0.85em;
+  word-break: break-word;
+}
+
+/* Blockquotes */
+.msg-markdown blockquote {
+  border-left: 3px solid hsl(var(--primary) / 0.4);
+  padding: 0.25rem 0 0.25rem 1rem;
+  margin: 0.75rem 0;
+  color: hsl(var(--muted-foreground));
+  font-style: italic;
+}
+
+.msg-markdown blockquote p {
+  margin: 0.25rem 0;
+}
+
+/* Horizontal rules */
+.msg-markdown hr {
+  border: none;
+  border-top: 1px solid hsl(var(--border));
+  margin: 1.25rem 0;
+}
+
+/* Headings inside messages */
+.msg-markdown h1,
+.msg-markdown h2,
+.msg-markdown h3,
+.msg-markdown h4 {
+  font-weight: 600;
+  line-height: 1.4;
+  margin-top: 1.25rem;
+  margin-bottom: 0.4rem;
+  color: hsl(var(--foreground));
+}
+
+.msg-markdown h1 { font-size: 1.15rem; }
+.msg-markdown h2 { font-size: 1.05rem; }
+.msg-markdown h3 { font-size: 0.95rem; }
+.msg-markdown h4 { font-size: 0.875rem; }
+
+.msg-markdown > *:first-child {
+  margin-top: 0 !important;
+}
+
+.msg-markdown > *:last-child {
+  margin-bottom: 0 !important;
+}
+
+/* Paragraphs */
+.msg-markdown p {
+  margin: 0.5rem 0;
+  line-height: 1.7;
+}
+
+/* Links */
+.msg-markdown a,
+.msg-markdown .msg-link {
+  color: hsl(var(--primary));
+  text-decoration: underline;
+  text-decoration-color: hsl(var(--primary) / 0.3);
+  text-underline-offset: 2px;
+  transition: text-decoration-color 150ms;
+}
+
+.msg-markdown a:hover,
+.msg-markdown .msg-link:hover {
+  text-decoration-color: hsl(var(--primary));
+}
+
+/* Bold / emphasis */
+.msg-markdown strong {
+  font-weight: 600;
+  color: hsl(var(--foreground));
+}
+
+/* Strikethrough (GFM) */
+.msg-markdown del {
+  color: hsl(var(--muted-foreground));
+}
+
+/* Images */
+.msg-markdown img {
+  max-width: 100%;
+  border-radius: 0.5rem;
+  margin: 0.75rem 0;
+}
+
+/* ---- Syntax highlighting (highlight.js theme) ---- */
+/* Adapted for both light and dark themes using CSS variables */
+
+.hljs {
+  color: hsl(var(--foreground) / 0.9);
+}
+
+.hljs-comment,
+.hljs-quote {
+  color: hsl(var(--muted-foreground) / 0.7);
+  font-style: italic;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-type {
+  color: #c678dd;
+}
+
+.dark .hljs-keyword,
+.dark .hljs-selector-tag,
+.dark .hljs-type {
+  color: #c678dd;
+}
+
+.hljs-string,
+.hljs-addition {
+  color: #50a14f;
+}
+
+.dark .hljs-string,
+.dark .hljs-addition {
+  color: #98c379;
+}
+
+.hljs-number,
+.hljs-literal {
+  color: #d19a66;
+}
+
+.dark .hljs-number,
+.dark .hljs-literal {
+  color: #d19a66;
+}
+
+.hljs-title,
+.hljs-section,
+.hljs-attr {
+  color: #4078f2;
+}
+
+.dark .hljs-title,
+.dark .hljs-section,
+.dark .hljs-attr {
+  color: #61afef;
+}
+
+.hljs-built_in,
+.hljs-name {
+  color: #e45649;
+}
+
+.dark .hljs-built_in,
+.dark .hljs-name {
+  color: #e06c75;
+}
+
+.hljs-variable,
+.hljs-template-variable {
+  color: #986801;
+}
+
+.dark .hljs-variable,
+.dark .hljs-template-variable {
+  color: #e5c07b;
+}
+
+.hljs-deletion {
+  color: #e45649;
+}
+
+.hljs-meta {
+  color: hsl(var(--muted-foreground));
+}
+
+.hljs-emphasis {
+  font-style: italic;
+}
+
+.hljs-strong {
+  font-weight: 700;
+}
