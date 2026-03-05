@@ -1,16 +1,15 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuthStore } from '@/stores/authStore'
-import { useEffect } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 
-// Pages
-import LoginPage from '@/pages/LoginPage'
-import RegisterPage from '@/pages/RegisterPage'
 import DashboardPage from '@/pages/DashboardPage'
-import SettingsPage from '@/pages/SettingsPage'
-import { EditDiscussionPage } from '@/pages/EditDiscussionPage'
 
-// Components
+const LoginPage = lazy(() => import('@/pages/LoginPage'))
+const RegisterPage = lazy(() => import('@/pages/RegisterPage'))
+const SettingsPage = lazy(() => import('@/pages/SettingsPage'))
+const EditDiscussionPage = lazy(() => import('@/pages/EditDiscussionPage').then(m => ({ default: m.EditDiscussionPage })))
+
 import { AuthGuard } from '@/components/auth/AuthGuard'
 import { ErrorBoundary } from '@/components/ui/error-boundary'
 import { Toaster } from '@/components/ui/toaster'
@@ -41,8 +40,8 @@ function App() {
     <ErrorBoundary>
       <Routes>
         {/* Public routes */}
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/register" element={<RegisterPage />} />
+        <Route path="/login" element={<Suspense fallback={<div>Loading...</div>}><LoginPage /></Suspense>} />
+        <Route path="/register" element={<Suspense fallback={<div>Loading...</div>}><RegisterPage /></Suspense>} />
 
         {/* Protected routes */}
         <Route
@@ -65,7 +64,7 @@ function App() {
           path="/discussion/:id/edit"
           element={
             <AuthGuard>
-              <EditDiscussionPage />
+              <Suspense fallback={<div>Loading...</div>}><EditDiscussionPage /></Suspense>
             </AuthGuard>
           }
         />
@@ -73,7 +72,7 @@ function App() {
           path="/settings"
           element={
             <AuthGuard>
-              <SettingsPage />
+              <Suspense fallback={<div>Loading...</div>}><SettingsPage /></Suspense>
             </AuthGuard>
           }
         />

@@ -198,12 +198,19 @@ async def _handle_round_robin_execution(
     )
 
     conv_messages = build_conversation_messages(state, agent, filled_prompt, rag_context)
-    response = await llm.ainvoke(conv_messages)
+    try:
+        response = await llm.ainvoke(conv_messages)
+        content = response.content
+        message_type = "agent_message"
+    except Exception as e:
+        content = f"[Error] {agent.name} failed to respond: {e}"
+        message_type = "error"
 
     msg = create_message(
-        content=response.content,
+        content=content,
         state=state,
         agent=agent,
+        message_type=message_type,
         node_id=config.id,
     )
 
@@ -512,19 +519,23 @@ async def decision_node(state: "DiscussionState", config: "GraphNodeConfig") -> 
         max_turns = config.max_turns or 20
         decision = "agree" if message_count >= max_turns else "disagree"
     elif condition == "custom" and config.custom_condition:
-        # Ask LLM to evaluate custom condition
-        llm = _get_fallback_llm_client(state)
+        try:
+            llm = _get_fallback_llm_client(state)
 
-        prompt = f"""Based on the discussion so far about "{state['topic']}",
+            prompt = f"""Based on the discussion so far about "{state['topic']}",
 evaluate this condition:
 
 {config.custom_condition}
 
 Respond with only "true" or "false"."""
 
-        response = await llm.ainvoke([HumanMessage(content=prompt)])
-        result = response.content.strip().lower()
-        decision = "agree" if result == "true" else "disagree"
+            response = await llm.ainvoke([HumanMessage(content=prompt)])
+            result = response.content.strip().lower()
+            decision = "agree" if result == "true" else "disagree"
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Custom condition LLM call failed: {e}")
+            decision = "disagree"
     else:
         decision = "disagree"
 

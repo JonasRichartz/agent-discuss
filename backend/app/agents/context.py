@@ -54,6 +54,7 @@ def get_llm_client(
             api_key=api_key,
             model=config.get("model", "gpt-3.5-turbo"),
             max_tokens=config.get("max_tokens", 4096),
+            request_timeout=120,
         )
 
     # Fallback to global config
@@ -69,6 +70,7 @@ def get_llm_client(
             api_key=llm_config.api_key,
             model=llm_config.model,
             max_tokens=llm_config.max_tokens,
+            request_timeout=120,
         )
 
     # No valid configuration available
