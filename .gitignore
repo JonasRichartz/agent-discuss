@@ -76,6 +76,9 @@ celerybeat.pid
 .claude/
 .mcp.json
 
+# Playwright MCP
+.playwright-mcp/
+
 # Misc
 *.bak
 *.tmp
