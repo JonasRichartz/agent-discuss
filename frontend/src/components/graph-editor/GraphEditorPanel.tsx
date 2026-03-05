@@ -7,6 +7,7 @@ import { GraphToolbar } from './GraphToolbar'
 import { NodeConfigPanel } from './NodeConfigPanel'
 
 import { GraphEditorProvider } from './GraphEditorContext'
+import { ParticipantBar } from './ParticipantBar'
 import { ChevronUp, ChevronDown, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -76,6 +77,9 @@ export function GraphEditorPanel({ discussionId, readOnly, onSave, onClose }: Gr
                 </Button>
               </div>
             </div>
+
+            {/* Participant Bar — above the canvas */}
+            {discussionId && <ParticipantBar discussionId={discussionId} readOnly={readOnly} />}
 
             {/* Main Content — canvas with floating toolbar */}
             <div className="flex-1 flex overflow-hidden">
