@@ -154,15 +154,22 @@ async def _handle_parallel_execution(
         conv_messages = build_conversation_messages(state, agent, filled_prompt, rag_context)
         tasks.append(llm.ainvoke(conv_messages))
 
-    responses = await asyncio.gather(*tasks)
+    responses = await asyncio.gather(*tasks, return_exceptions=True)
 
     messages = []
     base_sequence = state.get('message_sequence', 0)
     for i, (agent, response) in enumerate(zip(participating_agents, responses)):
+        if isinstance(response, Exception):
+            content = f"[Error] {agent.name} failed to respond: {response}"
+            message_type = "error"
+        else:
+            content = response.content
+            message_type = "agent_message"
         msg = create_message(
-            content=response.content,
+            content=content,
             state=state,
             agent=agent,
+            message_type=message_type,
             node_id=config.id,
         )
         msg.sequence_number = base_sequence + i + 1
@@ -349,17 +356,41 @@ Respond in JSON format:
 
     messages = []
     evaluations = list(node_state.evaluations)
-    llm = _get_fallback_llm_client(state)
+    participant_configs = state.get('participant_llm_configs', {})
 
-    # All agents evaluate in parallel
+    # All agents evaluate in parallel using their own LLM configs
     tasks = []
     for agent in agents:
+        llm = get_llm_client(
+            llm_config=state.get('llm_config'),
+            participant_id=agent.id,
+            participant_configs=participant_configs,
+        )
         conv_messages = build_conversation_messages(state, agent, filled_prompt)
         tasks.append(llm.ainvoke(conv_messages))
 
-    responses = await asyncio.gather(*tasks)
+    responses = await asyncio.gather(*tasks, return_exceptions=True)
 
     for agent, response in zip(agents, responses):
+        # Handle failed LLM calls gracefully
+        if isinstance(response, Exception):
+            evaluations.append(EvaluationResult(
+                agent_id=agent.id,
+                agent_name=agent.name,
+                scores={c: 5 for c in criteria},
+                vote="abstain",
+                reasoning=f"Evaluation failed: {response}",
+            ))
+            msg = create_message(
+                content=f"[Evaluation] {agent.name} could not evaluate: {response}",
+                state=state,
+                agent=agent,
+                message_type="agent_message",
+                node_id=config.id,
+            )
+            messages.append(msg)
+            continue
+
         # Parse evaluation response
         try:
             # Try to extract JSON from response with more robust parsing
