@@ -5,11 +5,19 @@ Takes a graph definition (from the frontend editor) and builds
 a LangGraph StateGraph that can be executed with checkpointing.
 """
 
-from typing import Literal, Any
-from langgraph.graph import StateGraph, END
+from typing import Any, Literal
 
-from .state import DiscussionState, GraphDefinition, GraphNodeConfig
+from langgraph.graph import END, StateGraph
+from langgraph.pregel import RetryPolicy
+
 from .nodes import NODE_FUNCTIONS
+from .state import DiscussionState, GraphDefinition, GraphNodeConfig
+
+# Retry policy for LLM-calling nodes — handles transient API failures
+LLM_RETRY_POLICY = RetryPolicy(max_attempts=3)
+
+# Node types that make LLM API calls and should be retried on transient failures
+LLM_NODE_TYPES = {"generate", "evaluate", "summary", "decision"}
 
 
 def get_node_function(config: GraphNodeConfig):
@@ -162,10 +170,11 @@ def build_discussion_graph(
     # Create state graph
     workflow = StateGraph(DiscussionState)
 
-    # Add nodes
+    # Add nodes (with retry policy for LLM-calling nodes)
     for node_config in graph_def.nodes:
         node_func = get_node_function(node_config)
-        workflow.add_node(node_config.id, node_func)
+        retry = LLM_RETRY_POLICY if node_config.type in LLM_NODE_TYPES else None
+        workflow.add_node(node_config.id, node_func, retry=retry)
 
     # Set entry point (start node)
     start_node = next((n for n in graph_def.nodes if n.type == "start"), None)
